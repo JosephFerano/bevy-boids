@@ -1,0 +1,55 @@
+{
+  "resources": ["Sollux", "Shadowstone", "Azurium", "Novafor", "Nebulance"],
+  "moons": {
+    "resourceChance": 1.0,
+    "resourceMinStartAmount": 50,
+    "resourceMaxStartAmount": 200
+  },
+  "store": [
+    {
+        "id": "item1",
+        "name": "Drill A",
+        "description": "This is drill A",
+        "price": 250,
+        "claimAmount": 50,
+        "completionTimeInMins": 2,
+        "upgrades": [
+          { "tier": 1, "price": 200, "claimBoost": 10 },
+          { "tier": 2, "price": 300, "claimBoost": 20 },
+          { "tier": 3, "price": 400, "claimBoost": 30 },
+          { "tier": 4, "price": 500, "claimBoost": 40 },
+          { "tier": 5, "price": 600, "claimBoost": 50 }
+        ]
+    },
+    {
+        "id": "item2",
+        "name": "Drill B",
+        "description": "This is drill B",
+        "price": 250,
+        "claimAmount": 50,
+        "completionTimeInMins": 2,
+        "upgrades": [
+          { "tier": 1, "price": 200, "claimBoost": 10 },
+          { "tier": 2, "price": 300, "claimBoost": 20 },
+          { "tier": 3, "price": 400, "claimBoost": 30 },
+          { "tier": 4, "price": 500, "claimBoost": 40 },
+          { "tier": 5, "price": 600, "claimBoost": 50 }
+        ]
+    },
+    {
+        "id": "item3",
+        "name": "Drill C",
+        "description": "This is drill C",
+        "price": 250,
+        "claimAmount": 50,
+        "completionTimeInMins": 2,
+        "upgrades": [
+          { "tier": 1, "price": 200, "claimBoost": 10 },
+          { "tier": 2, "price": 300, "claimBoost": 20 },
+          { "tier": 3, "price": 400, "claimBoost": 30 },
+          { "tier": 4, "price": 500, "claimBoost": 40 },
+          { "tier": 5, "price": 600, "claimBoost": 50 }
+        ]
+    }
+  ]
+}
