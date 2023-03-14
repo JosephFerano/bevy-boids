@@ -70,6 +70,8 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .insert_resource(Scoreboard { score: 0 })
         .insert_resource(ClearColor(Color::hex("fefae0").unwrap()))
+        .insert_resource(SpawnTimer(Timer::from_seconds(0.1, TimerMode::Repeating)))
+        .insert_resource(SpawnPosition { row_count: 0, col_count: 0 })
         .add_startup_system(setup)
         .add_event::<CollisionEvent>()
         // Add our gameplay simulation systems to the fixed timestep schedule
@@ -86,8 +88,8 @@ fn main() {
         )
         // Configure how frequently our gameplay systems are run
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
-        .add_system(update_scoreboard)
         .add_system(bevy::window::close_on_esc)
+        .add_system(spawn)
         .run();
 }
 
@@ -114,6 +116,15 @@ struct CollisionEvent;
 
 #[derive(Component)]
 struct Brick;
+
+#[derive(Resource)]
+struct SpawnPosition {
+    row_count: usize,
+    col_count: usize,
+}
+
+#[derive(Resource)]
+struct SpawnTimer(Timer);
 
 // This bundle is a collection of the components that define a "wall" in our game
 #[derive(Bundle)]
@@ -207,7 +218,7 @@ fn setup(
     commands.spawn(Camera2dBundle::default());
 
     let quad = shape::Quad::new(Vec2::new(20.0, 5.0)).into();
-    let circle = shape::Circle::new(15.0).into();
+    let circle = shape::Circle::new(33.0).into();
 
     let quad_material = materials.add(Color::hex("#d4a373").unwrap().into());
     let circle_material = materials.add(Color::hex("#ccd5ae").unwrap().into());
@@ -215,7 +226,7 @@ fn setup(
     commands.spawn((
         MaterialMesh2dBundle {
             mesh: meshes.add(circle).into(),
-            material: circle_material.clone(),
+            material: circle_material,
             transform: Transform::from_translation(Vec3::new(-100.0, 0.0, 0.0)),
             ..Default::default()
         },
@@ -223,15 +234,16 @@ fn setup(
         Collider,
     ))
         .with_children(|parent| {
-            parent.spawn(
+            parent.spawn((
                 MaterialMesh2dBundle {
                     mesh: meshes.add(quad).into(),
                     material: quad_material.clone(),
                     transform: Transform::from_translation(Vec3::new(0.0, 10.0, 0.1))
                         .with_rotation(Quat::from_rotation_z(PI / 2.0)),
                     ..Default::default()
-                }
-            );
+                },
+                Collider,
+            ));
         });
 
 
@@ -304,64 +316,6 @@ fn setup(
     commands.spawn(WallBundle::new(WallLocation::Bottom));
     commands.spawn(WallBundle::new(WallLocation::Top));
 
-    // Bricks
-    // Negative scales result in flipped sprites / meshes,
-    // which is definitely not what we want here
-    assert!(BRICK_SIZE.x > 0.0);
-    assert!(BRICK_SIZE.y > 0.0);
-
-    let total_width_of_bricks = (RIGHT_WALL - LEFT_WALL) - 2. * GAP_BETWEEN_BRICKS_AND_SIDES;
-    let bottom_edge_of_bricks = paddle_y + GAP_BETWEEN_PADDLE_AND_BRICKS;
-    let total_height_of_bricks = TOP_WALL - bottom_edge_of_bricks - GAP_BETWEEN_BRICKS_AND_CEILING;
-
-    assert!(total_width_of_bricks > 0.0);
-    assert!(total_height_of_bricks > 0.0);
-
-    // Given the space available, compute how many rows and columns of bricks we can fit
-    let n_columns = (total_width_of_bricks / (BRICK_SIZE.x + GAP_BETWEEN_BRICKS)).floor() as usize;
-    let n_rows = (total_height_of_bricks / (BRICK_SIZE.y + GAP_BETWEEN_BRICKS)).floor() as usize;
-    let n_vertical_gaps = n_columns - 1;
-
-    // Because we need to round the number of columns,
-    // the space on the top and sides of the bricks only captures a lower bound, not an exact value
-    let center_of_bricks = (LEFT_WALL + RIGHT_WALL) / 2.0;
-    let left_edge_of_bricks = center_of_bricks
-        // Space taken up by the bricks
-        - (n_columns as f32 / 2.0 * BRICK_SIZE.x)
-        // Space taken up by the gaps
-        - n_vertical_gaps as f32 / 2.0 * GAP_BETWEEN_BRICKS;
-
-    // In Bevy, the `translation` of an entity describes the center point,
-    // not its bottom-left corner
-    let offset_x = left_edge_of_bricks + BRICK_SIZE.x / 2.;
-    let offset_y = bottom_edge_of_bricks + BRICK_SIZE.y / 2.;
-
-    for row in 0..n_rows {
-        for column in 0..n_columns {
-            let brick_position = Vec2::new(
-                offset_x + column as f32 * (BRICK_SIZE.x + GAP_BETWEEN_BRICKS),
-                offset_y + row as f32 * (BRICK_SIZE.y + GAP_BETWEEN_BRICKS),
-            );
-
-            // brick
-            commands.spawn((
-                SpriteBundle {
-                    sprite: Sprite {
-                        color: BRICK_COLOR,
-                        ..default()
-                    },
-                    transform: Transform {
-                        translation: brick_position.extend(0.0),
-                        scale: Vec3::new(BRICK_SIZE.x, BRICK_SIZE.y, 1.0),
-                        ..default()
-                    },
-                    ..default()
-                },
-                Brick,
-                Collider,
-            ));
-        }
-    }
 }
 
 fn move_dude(
@@ -385,7 +339,7 @@ fn move_dude(
         movement_factor += 1.0;
     }
 
-    player_t.rotate_z(rotation_factor * 2.0 * TIME_STEP);
+    player_t.rotate_z(rotation_factor * 4.5 * TIME_STEP);
 
     let movement_direction = player_t.rotation * Vec3::Y;
     player_t.translation += movement_direction * 5.0 * movement_factor;
@@ -422,11 +376,6 @@ fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
         transform.translation.x += velocity.x * TIME_STEP;
         transform.translation.y += velocity.y * TIME_STEP;
     }
-}
-
-fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>) {
-    let mut text = query.single_mut();
-    text.sections[1].value = scoreboard.score.to_string();
 }
 
 fn check_for_collisions(
@@ -480,6 +429,76 @@ fn check_for_collisions(
             if reflect_y {
                 ball_velocity.y = -ball_velocity.y;
             }
+        }
+    }
+}
+
+fn spawn(
+    time: Res<Time>,
+    mut timer: ResMut<SpawnTimer>,
+    mut spawn_pos: ResMut<SpawnPosition>,
+    mut commands: Commands,
+) {
+    if timer.0.tick(time.delta()).just_finished() {
+        let row = spawn_pos.row_count;
+        let column = spawn_pos.col_count;
+
+        let paddle_y = BOTTOM_WALL + GAP_BETWEEN_PADDLE_AND_FLOOR;
+
+        let total_width_of_bricks = (RIGHT_WALL - LEFT_WALL) - 2. * GAP_BETWEEN_BRICKS_AND_SIDES;
+        let bottom_edge_of_bricks = paddle_y + GAP_BETWEEN_PADDLE_AND_BRICKS;
+        let total_height_of_bricks = TOP_WALL - bottom_edge_of_bricks - GAP_BETWEEN_BRICKS_AND_CEILING;
+
+        // Given the space available, compute how many rows and columns of bricks we can fit
+        let n_columns = (total_width_of_bricks / (BRICK_SIZE.x + GAP_BETWEEN_BRICKS)).floor() as usize;
+        let n_rows = (total_height_of_bricks / (BRICK_SIZE.y + GAP_BETWEEN_BRICKS)).floor() as usize;
+        let n_vertical_gaps = n_columns - 1;
+
+        if row >= n_rows {
+            return;
+        }
+
+        // Because we need to round the number of columns,
+        // the space on the top and sides of the bricks only captures a lower bound, not an exact value
+        let center_of_bricks = (LEFT_WALL + RIGHT_WALL) / 2.0;
+        let left_edge_of_bricks = center_of_bricks
+        // Space taken up by the bricks
+            - (n_columns as f32 / 2.0 * BRICK_SIZE.x)
+        // Space taken up by the gaps
+            - n_vertical_gaps as f32 / 2.0 * GAP_BETWEEN_BRICKS;
+
+        // In Bevy, the `translation` of an entity describes the center point,
+        // not its bottom-left corner
+        let offset_x = left_edge_of_bricks + BRICK_SIZE.x / 2.;
+        let offset_y = bottom_edge_of_bricks + BRICK_SIZE.y / 2.;
+
+        let brick_position = Vec2::new(
+            offset_x + column as f32 * (BRICK_SIZE.x + GAP_BETWEEN_BRICKS),
+            offset_y + ((n_rows - 1) as f32 * (BRICK_SIZE.y + GAP_BETWEEN_BRICKS)) - row as f32 * (BRICK_SIZE.y + GAP_BETWEEN_BRICKS),
+        );
+
+        // brick
+        commands.spawn((
+            SpriteBundle {
+                sprite: Sprite {
+                    color: BRICK_COLOR,
+                    ..default()
+                },
+                transform: Transform {
+                    translation: brick_position.extend(0.0),
+                    scale: Vec3::new(BRICK_SIZE.x, BRICK_SIZE.y, 1.0),
+                    ..default()
+                },
+                ..default()
+            },
+            Brick,
+            Collider,
+        ));
+        if column >= n_columns - 1 {
+            spawn_pos.col_count = 0;
+            spawn_pos.row_count += 1;
+        } else {
+            spawn_pos.col_count += 1;
         }
     }
 }
