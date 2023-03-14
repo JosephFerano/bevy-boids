@@ -1,10 +1,19 @@
 //! A simplified implementation of the classic game "Breakout".
+
+#![allow(unused_imports, dead_code, unused)]
+
 use json_typegen::json_typegen;
 use bevy::{
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
-    sprite::MaterialMesh2dBundle,
+    sprite::{ MaterialMesh2dBundle,Mesh2dHandle },
+    render::{
+        mesh::{Indices,MeshVertexAttribute},
+        render_resource::{PrimitiveTopology,VertexFormat},
+    }
 };
+
+use std::f32::consts::PI;
 
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 60.0;
@@ -42,7 +51,6 @@ const GAP_BETWEEN_BRICKS_AND_SIDES: f32 = 20.0;
 const SCOREBOARD_FONT_SIZE: f32 = 40.0;
 const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
 
-const BACKGROUND_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
 const PADDLE_COLOR: Color = Color::rgb(0.3, 0.3, 0.7);
 const BALL_COLOR: Color = Color::rgb(1.0, 0.5, 0.5);
 const BRICK_COLOR: Color = Color::rgb(0.5, 0.5, 1.0);
@@ -53,26 +61,26 @@ const SCORE_COLOR: Color = Color::rgb(1.0, 0.5, 0.5);
 json_typegen!("GameConfig", "./game-config.json");
 
 fn main() {
-    let file = std::fs::File::open("../game-config.json").unwrap();
+    let file = std::fs::File::open("./game-config.json").unwrap();
     let reader = std::io::BufReader::new(file);
-    let gameConfig: GameConfig = serde_json::from_reader(reader).unwrap();
-    println!("{:?}", gameConfig.moons.resource_chance);
-    println!("{:?}", gameConfig.store[0]);
+    let game_config: GameConfig = serde_json::from_reader(reader).unwrap();
+    // println!("{:?}", gameConfig.moons.resource_chance);
+    // println!("{:?}", gameConfig.store[0]);
     App::new()
         .add_plugins(DefaultPlugins)
         .insert_resource(Scoreboard { score: 0 })
-        .insert_resource(ClearColor(BACKGROUND_COLOR))
+        .insert_resource(ClearColor(Color::hex("fefae0").unwrap()))
         .add_startup_system(setup)
         .add_event::<CollisionEvent>()
         // Add our gameplay simulation systems to the fixed timestep schedule
         .add_systems(
             (
+                move_dude,
                 check_for_collisions,
                 apply_velocity.before(check_for_collisions),
                 move_paddle
                     .before(check_for_collisions)
                     .after(apply_velocity),
-                play_collision_sound.after(check_for_collisions),
             )
                 .in_schedule(CoreSchedule::FixedUpdate),
         )
@@ -89,6 +97,12 @@ struct Paddle;
 #[derive(Component)]
 struct Ball;
 
+#[derive(Component)]
+struct Player;
+
+#[derive(Component)]
+struct Boid;
+
 #[derive(Component, Deref, DerefMut)]
 struct Velocity(Vec2);
 
@@ -101,9 +115,6 @@ struct CollisionEvent;
 #[derive(Component)]
 struct Brick;
 
-#[derive(Resource)]
-struct CollisionSound(Handle<AudioSource>);
-
 // This bundle is a collection of the components that define a "wall" in our game
 #[derive(Bundle)]
 struct WallBundle {
@@ -112,6 +123,9 @@ struct WallBundle {
     sprite_bundle: SpriteBundle,
     collider: Collider,
 }
+
+#[derive(Component, Default)]
+pub struct ColoredMesh2d;
 
 /// Which side of the arena is this wall located on?
 enum WallLocation {
@@ -192,9 +206,35 @@ fn setup(
     // Camera
     commands.spawn(Camera2dBundle::default());
 
-    // Sound
-    let ball_collision_sound = asset_server.load("sounds/breakout_collision.ogg");
-    commands.insert_resource(CollisionSound(ball_collision_sound));
+    let quad = shape::Quad::new(Vec2::new(20.0, 5.0)).into();
+    let circle = shape::Circle::new(15.0).into();
+
+    let quad_material = materials.add(Color::hex("#d4a373").unwrap().into());
+    let circle_material = materials.add(Color::hex("#ccd5ae").unwrap().into());
+
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: meshes.add(circle).into(),
+            material: circle_material.clone(),
+            transform: Transform::from_translation(Vec3::new(-100.0, 0.0, 0.0)),
+            ..Default::default()
+        },
+        Player,
+        Collider,
+    ))
+        .with_children(|parent| {
+            parent.spawn(
+                MaterialMesh2dBundle {
+                    mesh: meshes.add(quad).into(),
+                    material: quad_material.clone(),
+                    transform: Transform::from_translation(Vec3::new(0.0, 10.0, 0.1))
+                        .with_rotation(Quat::from_rotation_z(PI / 2.0)),
+                    ..Default::default()
+                }
+            );
+        });
+
+
 
     // Paddle
     let paddle_y = BOTTOM_WALL + GAP_BETWEEN_PADDLE_AND_FLOOR;
@@ -229,11 +269,12 @@ fn setup(
     ));
 
     let font = asset_server.load("fira.ttf");
-    // Scoreboard
+
+    // Boid Count
     commands.spawn(
         TextBundle::from_sections([
             TextSection::new(
-                "Score: ",
+                "Boid Count: ",
                 TextStyle {
                     font: font.clone(),
                     font_size: SCOREBOARD_FONT_SIZE,
@@ -321,6 +362,33 @@ fn setup(
             ));
         }
     }
+}
+
+fn move_dude(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut query: Query<(&Player, &mut Transform)>,
+) {
+    let (player, mut player_t) = query.single_mut();
+
+    let mut rotation_factor = 0.0;
+    let mut movement_factor = 0.0;
+
+    if keyboard_input.pressed(KeyCode::A) {
+        rotation_factor += 1.0;
+    }
+
+    if keyboard_input.pressed(KeyCode::D) {
+        rotation_factor -= 1.0;
+    }
+
+    if keyboard_input.pressed(KeyCode::W) {
+        movement_factor += 1.0;
+    }
+
+    player_t.rotate_z(rotation_factor * 2.0 * TIME_STEP);
+
+    let movement_direction = player_t.rotation * Vec3::Y;
+    player_t.translation += movement_direction * 5.0 * movement_factor;
 }
 
 fn move_paddle(
@@ -413,18 +481,5 @@ fn check_for_collisions(
                 ball_velocity.y = -ball_velocity.y;
             }
         }
-    }
-}
-
-fn play_collision_sound(
-    mut collision_events: EventReader<CollisionEvent>,
-    audio: Res<Audio>,
-    sound: Res<CollisionSound>,
-) {
-    // Play a sound once per frame if a collision occurred.
-    if !collision_events.is_empty() {
-        // This prevents events staying active on the next frame.
-        collision_events.clear();
-        audio.play(sound.0.clone());
     }
 }
